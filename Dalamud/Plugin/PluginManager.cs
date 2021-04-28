@@ -110,10 +110,12 @@ namespace Dalamud.Plugin
             this.Plugins.Clear();
         }
 
+        private IEnumerable<(FileInfo dllFile, PluginDefinition definition, bool isRaw)> deferredPlugins;
+
         /// <summary>
-        /// Load all regular and dev plugins.
+        /// Load plugins that need to be loaded synchronously and prepare plugins that can be loaded asynchronously.
         /// </summary>
-        public void LoadPlugins()
+        public void LoadSynchronousPlugins()
         {
             var loadDirectories = new List<(DirectoryInfo dirInfo, bool isRaw)>
             {
@@ -148,12 +150,40 @@ namespace Dalamud.Plugin
                 return prio2.CompareTo(prio1);
             });
 
-            // Pass preloaded definitions to LoadPluginFromAssembly, because we already loaded them anyways
-            foreach (var (dllFile, definition, isRaw) in pluginDefs)
+            this.deferredPlugins = pluginDefs.Where(x => x.definition?.LoadPriority <= 0);
+
+            // Pass preloaded definitions for "synchronous load" plugins to LoadPluginFromAssembly, because we already loaded them anyways
+            foreach (var (dllFile, definition, isRaw) in pluginDefs.Where(x => x.definition?.LoadPriority > 0))
             {
                 try
                 {
-                    this.LoadPluginFromAssembly(dllFile, isRaw, PluginLoadReason.Boot, true, definition);
+                    this.LoadPluginFromAssembly(dllFile, isRaw, PluginLoadReason.Boot, definition);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, $"Plugin load for {dllFile.FullName} failed.");
+                    if (ex is ReflectionTypeLoadException typeLoadException)
+                    {
+                        foreach (var exception in typeLoadException.LoaderExceptions)
+                        {
+                            Log.Error(exception, "LoaderException:");
+                        }
+                    }
+                }
+            }
+        }
+
+        public void LoadDeferredPlugins()
+        {
+            if (this.deferredPlugins == null)
+                throw new Exception("Synchronous plugins need to be loaded before deferred plugins.");
+
+            // Pass preloaded definitions for "deferred load" plugins to LoadPluginFromAssembly, because we already loaded them anyways
+            foreach (var (dllFile, definition, isRaw) in this.deferredPlugins)
+            {
+                try
+                {
+                    this.LoadPluginFromAssembly(dllFile, isRaw, PluginLoadReason.Boot, definition);
                 }
                 catch (Exception ex)
                 {
@@ -207,10 +237,9 @@ namespace Dalamud.Plugin
         /// <param name="dllFile">The <see cref="FileInfo"/> associated with the main assembly of this plugin.</param>
         /// <param name="isRaw">Whether or not the plugin is a dev plugin.</param>
         /// <param name="reason">The reason this plugin was loaded.</param>
-        /// <param name="preloaded">Whether or not to skip loading a definition from a file path.</param>
-        /// <param name="preloadedDef">The already loaded definition, when <paramref name="preloaded"/> is set to true.</param>
+        /// <param name="pluginDef">The already loaded definition, if available</param>
         /// <returns>Whether or not the plugin was loaded successfully.</returns>
-        public bool LoadPluginFromAssembly(FileInfo dllFile, bool isRaw, PluginLoadReason reason, bool preloaded = false, PluginDefinition preloadedDef = null)
+        public bool LoadPluginFromAssembly(FileInfo dllFile, bool isRaw, PluginLoadReason reason, PluginDefinition pluginDef = null)
         {
             Log.Information("Loading plugin at {0}", dllFile.Directory.FullName);
 
@@ -231,28 +260,8 @@ namespace Dalamud.Plugin
                 return false;
             }
 
-            PluginDefinition pluginDef = null;
-
             // Preloaded
-            if (preloaded)
-            {
-                if (preloadedDef == null && !isRaw)
-                {
-                    Log.Information("Plugin DLL {0} has no definition.", dllFile.FullName);
-                    return false;
-                }
-
-                if (preloadedDef != null &&
-                    preloadedDef.ApplicableVersion != this.dalamud.StartInfo.GameVersion &&
-                    preloadedDef.ApplicableVersion != "any")
-                {
-                    Log.Information("Plugin {0} has not applicable version.", dllFile.FullName);
-                    return false;
-                }
-
-                pluginDef = preloadedDef;
-            }
-            else
+            if (pluginDef == null)
             {
                 // read the plugin def if present - again, fail before actually trying to load the dll if there is a problem
                 var defJsonFile = new FileInfo(Path.Combine(dllFile.Directory.FullName, $"{Path.GetFileNameWithoutExtension(dllFile.Name)}.json"));
@@ -265,16 +274,35 @@ namespace Dalamud.Plugin
                     pluginDef =
                         JsonConvert.DeserializeObject<PluginDefinition>(
                             File.ReadAllText(defJsonFile.FullName));
+                }
+            }
 
-                    if (pluginDef.ApplicableVersion != this.dalamud.StartInfo.GameVersion && pluginDef.ApplicableVersion != "any")
+            // Perform checks
+            if (!isRaw)
+            {
+                if (pluginDef != null)
+                {
+                    if (pluginDef.ApplicableVersion != this.dalamud.StartInfo.GameVersion &&
+                        pluginDef.ApplicableVersion != "any")
                     {
                         Log.Information("Plugin {0} has not applicable version.", dllFile.FullName);
                         return false;
                     }
-                }
 
-                // but developer plugins don't require one to load
-                else if (!isRaw)
+                    if (pluginDef.DalamudApiLevel < DalamudApiLevel)
+                    {
+                        Log.Error("Incompatible API level: {0}", dllFile.FullName);
+                        return false;
+                    }
+
+                    //if (this.bannedPlugins.Any(x => x.Name == pluginDef.InternalName &&
+                    //                                x.AssemblyVersion == pluginDef.AssemblyVersion))
+                    //{
+                    //    Log.Error($"[PLUGINM] Banned plugin {pluginDef.InternalName} {pluginDef.AssemblyVersion}");
+                    //    return false;
+                    //}
+                }
+                else
                 {
                     Log.Information("Plugin DLL {0} has no definition.", dllFile.FullName);
                     return false;
@@ -322,38 +350,6 @@ namespace Dalamud.Plugin
                         IsHide = false,
                         DalamudApiLevel = DalamudApiLevel,
                     };
-                    /*
-                    if (this.bannedPlugins.Any(x => x.Name == pluginDef.InternalName &&
-                                                    x.AssemblyVersion == pluginDef.AssemblyVersion))
-                    {
-                        Log.Error($"[PLUGINM] Banned plugin {pluginDef.InternalName} with {pluginDef.AssemblyVersion}");
-                        return false;
-                    }
-                    */
-
-                    if (pluginDef.InternalName == "PingPlugin" && pluginDef.AssemblyVersion == "1.11.0.0")
-                    {
-                        Log.Error("Banned PingPlugin");
-                        return false;
-                    }
-
-                    if (pluginDef.InternalName == "FPSPlugin" && pluginDef.AssemblyVersion == "1.4.2.0")
-                    {
-                        Log.Error("Banned PingPlugin");
-                        return false;
-                    }
-
-                    if (pluginDef.InternalName == "SonarPlugin" && pluginDef.AssemblyVersion == "0.1.3.1")
-                    {
-                        Log.Error("Banned SonarPlugin");
-                        return false;
-                    }
-
-                    if (pluginDef.DalamudApiLevel < DalamudApiLevel)
-                    {
-                        Log.Error("Incompatible API level: {0}", dllFile.FullName);
-                        return false;
-                    }
 
                     Log.Verbose("Plugin Initialize...");
 
@@ -378,7 +374,7 @@ namespace Dalamud.Plugin
         public void ReloadPlugins()
         {
             this.UnloadPlugins();
-            this.LoadPlugins();
+            this.LoadSynchronousPlugins();
         }
 
         private class BannedPlugin

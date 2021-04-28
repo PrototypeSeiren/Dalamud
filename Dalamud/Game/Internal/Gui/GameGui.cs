@@ -120,7 +120,7 @@ namespace Dalamud.Game.Internal.Gui {
             Log.Verbose("HandleItemHover address {Address}", Address.HandleItemHover);
             Log.Verbose("HandleItemOut address {Address}", Address.HandleItemOut);
             Log.Verbose("GetUIObject address {Address}", Address.GetUIObject);
-            // Log.Verbose("GetAgentModule address {Address}", Address.GetAgentModule);
+            Log.Verbose("GetAgentModule address {Address}", Address.GetAgentModule);
 
             Chat = new ChatGui(Address.ChatManager, scanner, dalamud);
             PartyFinder = new PartyFinderGui(scanner, dalamud);
@@ -163,7 +163,7 @@ namespace Dalamud.Game.Internal.Gui {
             this.getUIObjectByName = Marshal.GetDelegateForFunctionPointer<GetUIObjectByNameDelegate>(Address.GetUIObjectByName);
 
             this.getUiModule = Marshal.GetDelegateForFunctionPointer<GetUiModuleDelegate>(Address.GetUIModule);
-            // this.getAgentModule = Marshal.GetDelegateForFunctionPointer<GetAgentModuleDelegate>(Address.GetAgentModule);
+            this.getAgentModule = Marshal.GetDelegateForFunctionPointer<GetAgentModuleDelegate>(Address.GetAgentModule);
         }
 
         private IntPtr HandleSetGlobalBgmDetour(UInt16 bgmKey, byte a2, UInt32 a3, UInt32 a4, UInt32 a5, byte a6) {
@@ -489,7 +489,7 @@ namespace Dalamud.Game.Internal.Gui {
             if (id == 0)
                 return IntPtr.Zero;
 
-            for (var i = 0; i < 379; i++)
+            for (var i = 0; i < 380; i++)
             {
                 var agent = Marshal.ReadIntPtr(agentModule, 0x20 + (i * 8));
                 if (agent == IntPtr.Zero)

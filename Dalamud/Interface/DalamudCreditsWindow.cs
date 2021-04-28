@@ -112,11 +112,6 @@ Thank you for using XIVLauncher and Dalamud!
                                        Path.Combine(this.dalamud.AssetDirectory.FullName, "UIRes", "logo.png"));
             this.framework = dalamud.Framework;
 
-            var pluginCredits = dalamud.PluginManager.Plugins.Where(x => x.Definition != null).Aggregate(string.Empty, (current, plugin) => current + $"{plugin.Definition.Name} by {plugin.Definition.Author}\n");
-
-            this.creditsText =
-                string.Format(CreditsTextTempl, typeof(Dalamud).Assembly.GetName().Version, pluginCredits);
-
             this.Size = new Vector2(500, 400);
             this.SizeCondition = ImGuiCond.Always;
 
@@ -129,6 +124,11 @@ Thank you for using XIVLauncher and Dalamud!
         {
             base.OnOpen();
 
+            var pluginCredits = this.dalamud.PluginManager.Plugins.Where(x => x.Definition != null).Aggregate(string.Empty, (current, plugin) => current + $"{plugin.Definition.Name} by {plugin.Definition.Author}\n");
+
+            this.creditsText =
+                string.Format(CreditsTextTempl, typeof(Dalamud).Assembly.GetName().Version, pluginCredits);
+
             this.framework.Gui.SetBgm(132);
         }
 
@@ -140,7 +140,7 @@ Thank you for using XIVLauncher and Dalamud!
         }
 
         public void Dispose() {
-            this.logoTexture.Dispose();
+            this.logoTexture?.Dispose();
         }
 
         public override void Draw() {

@@ -16,6 +16,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using ImGuiNET;
+using ImGuiScene;
 using Newtonsoft.Json;
 using Serilog;
 
@@ -35,7 +36,7 @@ namespace Dalamud.Interface
         private string[] dataKinds = new[]
         {
             "ServerOpCode", "Address", "Actor Table", "Font Test", "Party List", "Plugin IPC", "Condition",
-            "Gauge", "Command", "Addon", "Addon Inspector", "StartInfo", "Target", "Toast", "ImGui"
+            "Gauge", "Command", "Addon", "Addon Inspector", "StartInfo", "Target", "Toast", "ImGui", "Tex",
         };
 
         private bool drawActors = false;
@@ -61,6 +62,13 @@ namespace Dalamud.Interface
         private bool questToastSound = false;
         private int questToastIconId = 0;
         private bool questToastCheckmark = false;
+
+        private string inputTexPath = string.Empty;
+        private TextureWrap debugTex = null;
+        private Vector2 inputTexUv0 = Vector2.Zero;
+        private Vector2 inputTexUv1 = Vector2.One;
+        private Vector4 inputTintCol = Vector4.One;
+        private Vector2 inputTexScale = Vector2.Zero;
 
         private uint copyButtonIndex = 0;
 
@@ -345,6 +353,42 @@ namespace Dalamud.Interface
                         // ImGui
                         case 14:
                             ImGui.Text("Monitor count: " + ImGui.GetPlatformIO().Monitors.Size);
+                            ImGui.Text("OverrideGameCursor: " + this.dalamud.InterfaceManager.OverrideGameCursor);
+
+                            ImGui.Button("THIS IS A BUTTON###hoverTestButton");
+                            this.dalamud.InterfaceManager.OverrideGameCursor = !ImGui.IsItemHovered();
+
+                            break;
+
+                        // Tex
+                        case 15:
+                            ImGui.InputText("Tex Path", ref this.inputTexPath, 255);
+                            ImGui.InputFloat2("UV0", ref this.inputTexUv0);
+                            ImGui.InputFloat2("UV1", ref this.inputTexUv1);
+                            ImGui.InputFloat4("Tint", ref this.inputTintCol);
+                            ImGui.InputFloat2("Scale", ref this.inputTexScale);
+
+                            if (ImGui.Button("Load Tex"))
+                            {
+                                try
+                                {
+                                    this.debugTex = this.dalamud.Data.GetImGuiTexture(this.inputTexPath);
+                                    this.inputTexScale = new Vector2(this.debugTex.Width, this.debugTex.Height);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Error(ex, "Could not load tex.");
+                                }
+                            }
+
+                            ImGuiHelpers.ScaledDummy(10);
+
+                            if (this.debugTex != null)
+                            {
+                                ImGui.Image(this.debugTex.ImGuiHandle, this.inputTexScale, this.inputTexUv0, this.inputTexUv1, this.inputTintCol);
+                                ImGuiHelpers.ScaledDummy(5);
+                                Util.ShowObject(this.debugTex);
+                            }
 
                             break;
                     }

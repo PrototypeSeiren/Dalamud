@@ -55,6 +55,15 @@ namespace Dalamud.Interface
         public Device Device => this.scene.Device;
         public IntPtr WindowHandlePtr => this.scene.WindowHandlePtr;
 
+        /// <summary>
+        /// Gets or sets a value indicating whether or not the game's cursor should be overridden with the ImGui cursor.
+        /// </summary>
+        public bool OverrideGameCursor
+        {
+            get => this.scene.UpdateCursor;
+            set => this.scene.UpdateCursor = value;
+        }
+
         private delegate void InstallRTSSHook();
         private string rtssPath;
 
@@ -68,6 +77,9 @@ namespace Dalamud.Interface
         /// </summary>
         public event RawDX11Scene.BuildUIDelegate OnDraw;
 
+        public bool FontsReady { get; set; } = false;
+
+        public bool IsReady => this.scene != null;
 
         public InterfaceManager(Dalamud dalamud, SigScanner scanner)
         {
@@ -170,6 +182,7 @@ namespace Dalamud.Interface
             System.Threading.Thread.Sleep(500);
             
             this.scene?.Dispose();
+            this.setCursorHook.Dispose();
             this.presentHook.Dispose();
             this.resizeBuffersHook.Dispose();
         }
@@ -280,6 +293,8 @@ namespace Dalamud.Interface
                 }
 
                 ImGuiHelpers.MainViewport = ImGui.GetMainViewport();
+
+                Log.Information("[IM] Scene & ImGui setup OK!");
             }
 
             // Process information needed by ImGuiHelpers each frame.
@@ -307,6 +322,13 @@ namespace Dalamud.Interface
         public static ImFontPtr DefaultFont { get; private set; }
         public static ImFontPtr IconFont { get; private set; }
 
+        private static void ShowFontError(string path)
+        {
+            Util.Fatal(
+                $"One or more files required by XIVLauncher were not found.\nPlease restart and report this error if it occurs again.\n\n{path}",
+                "Error");
+        }
+
         private unsafe void SetupFonts()
         {
             this.fontBuildSignal.Reset();
@@ -319,11 +341,17 @@ namespace Dalamud.Interface
 
             var fontPathSc = Path.Combine(this.dalamud.StartInfo.WorkingDirectory, "UIRes", "NotoSansCJKsc-Medium.otf");
 
+            if (!File.Exists(fontPathSc))
+                ShowFontError(fontPathSc);
+
             var chineseRangeHandle = GCHandle.Alloc(GlyphRangesChinese.GlyphRanges, GCHandleType.Pinned);
 
             DefaultFont = ImGui.GetIO().Fonts.AddFontFromFileTTF(fontPathSc, 17.0f, null, chineseRangeHandle.AddrOfPinnedObject());
 
             var fontPathGame = Path.Combine(this.dalamud.AssetDirectory.FullName, "UIRes", "gamesym.ttf");
+
+            if (!File.Exists(fontPathGame))
+                ShowFontError(fontPathGame);
 
             var gameRangeHandle = GCHandle.Alloc(new ushort[]
             {
@@ -335,6 +363,9 @@ namespace Dalamud.Interface
             ImGui.GetIO().Fonts.AddFontFromFileTTF(fontPathGame, 17.0f, fontConfig, gameRangeHandle.AddrOfPinnedObject());
 
             var fontPathIcon = Path.Combine(this.dalamud.AssetDirectory.FullName, "UIRes", "FontAwesome5FreeSolid.otf");
+
+            if (!File.Exists(fontPathIcon))
+                ShowFontError(fontPathIcon);
 
             var iconRangeHandle = GCHandle.Alloc(new ushort[]
             {
@@ -362,6 +393,8 @@ namespace Dalamud.Interface
             chineseRangeHandle.Free();
             gameRangeHandle.Free();
             iconRangeHandle.Free();
+
+            this.FontsReady = true;
         }
 
         public void WaitForFontRebuild() {
@@ -411,7 +444,7 @@ namespace Dalamud.Interface
         private bool lastWantCapture = false;
 
         private IntPtr SetCursorDetour(IntPtr hCursor) {
-            if (this.lastWantCapture == true && (!scene?.IsImGuiCursor(hCursor) ?? false))
+            if (this.lastWantCapture == true && (!scene?.IsImGuiCursor(hCursor) ?? false) && this.OverrideGameCursor)
                 return IntPtr.Zero;
 
             return this.setCursorHook.Original(hCursor);
